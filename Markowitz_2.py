@@ -66,21 +66,36 @@ class MyPortfolio:
         # Get the assets by excluding the specified column
         assets = self.price.columns[self.price.columns != self.exclude]
 
-        # Calculate the portfolio weights
-        self.portfolio_weights = pd.DataFrame(
-            index=self.price.index, columns=self.price.columns
+        # Calculate the covariance matrix
+        cov_matrix = self.returns[assets].cov()
+
+        # Define optimization model
+        m = gp.Model("portfolio_optimization")
+        
+        # Define variables
+        weights = m.addVars(assets, lb=0, ub=1, name="weights")
+        
+        # Objective function: maximize Sharpe ratio
+        mean_returns = np.array([self.returns[i].mean() for i in assets])
+        std_returns = np.array(self.returns[assets].std())
+        m.setObjective(
+            sum(weights[i] * mean_returns[j] for j, i in enumerate(assets)) / std_returns.mean(),
+            sense=gp.GRB.MAXIMIZE
         )
+        
+        # Constraint: sum of weights equals 1
+        m.addConstr(sum(weights[i] for i in assets) == 1, "budget")
 
-        """
-        TODO: Complete Task 4 Below
-        """
+        # Optimize the model
+        m.optimize()
 
-        """
-        TODO: Complete Task 4 Above
-        """
+        # Get optimized weights
+        self.portfolio_weights = pd.DataFrame(index=self.price.index, columns=self.price.columns)
+        for asset in assets:
+            self.portfolio_weights[asset] = weights[asset].x
 
-        self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
+
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
@@ -238,7 +253,7 @@ if __name__ == "__main__":
             if "spy" in args.score:
                 judge.check_sharp_ratio_greater_than_spy()
         elif "all" in args.score:
-            print(f"==> totoal Score = {judge.check_all_answer()} <==")
+            print(f"==> total Score = {judge.check_all_answer()} <==")
 
     if args.allocation:
         if "mp" in args.allocation:

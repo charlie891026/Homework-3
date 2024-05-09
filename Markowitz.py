@@ -59,17 +59,17 @@ class EqualWeightPortfolio:
         self.exclude = exclude
 
     def calculate_weights(self):
-        # Get the assets by excluding the specified column
+        # 獲取除去指定資產的其餘資產
         assets = df.columns[df.columns != self.exclude]
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        num_assets = len(assets)  # 計算需要均分的資產數量
 
-        """
-        TODO: Complete Task 1 Below
-        """
+        # 建立與原始資料 DataFrame 尺寸相同的權重 DataFrame，初始化為零
+        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns, data=0)
 
-        """
-        TODO: Complete Task 1 Above
-        """
+        # 對於所有資產均分權重，填入對應的 DataFrame 中
+        self.portfolio_weights[assets] = 1.0 / num_assets
+
+        # 將 NaN 值替換為 0，並且向前填補（Forward Fill）
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -111,17 +111,27 @@ class RiskParityPortfolio:
         # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
 
-        # Calculate the portfolio weights
+        # Initialize the portfolio_weights DataFrame
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
 
-        """
-        TODO: Complete Task 2 Below
-        """
+        # Loop through each date, starting from the lookback window
+        for i in range(self.lookback + 1, len(df)):
+            # Select the returns over the lookback period
+            R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
 
-        """
-        TODO: Complete Task 2 Above
-        """
+            # Calculate standard deviation (volatility) of returns for each asset
+            volatilities = R_n.std()
 
+            # Calculate the inverse of each asset's volatility
+            inverse_vols = 1 / volatilities
+
+            # Calculate the weights by normalizing the inverse volatilities
+            weights = inverse_vols / inverse_vols.sum()
+
+            # Assign the calculated weights to the corresponding date in the portfolio_weights DataFrame
+            self.portfolio_weights.loc[df.index[i], assets] = weights
+
+        # Fill missing values
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -186,41 +196,24 @@ class MeanVariancePortfolio:
             env.setParam("DualReductions", 0)
             env.start()
             with gp.Model(env=env, name="portfolio") as model:
-                """
-                TODO: Complete Task 3 Below
-                """
+                # 添加決策變數 w，範圍 [0, 1]
+                w = model.addMVar(shape=n, lb=0, name="w")
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # 定義目標函數
+                objective = w @ mu - gamma / 2 * (w @ Sigma @ w)
+                model.setObjective(objective, gp.GRB.MAXIMIZE)
 
-                """
-                TODO: Complete Task 3 Below
-                """
+                # 添加權重和為1的約束
+                model.addConstr(w.sum() == 1, name="budget")
+
+                # 優化模型
                 model.optimize()
 
-                # Check if the status is INF_OR_UNBD (code 4)
-                if model.status == gp.GRB.INF_OR_UNBD:
-                    print(
-                        "Model status is INF_OR_UNBD. Reoptimizing with DualReductions set to 0."
-                    )
-                elif model.status == gp.GRB.INFEASIBLE:
-                    # Handle infeasible model
-                    print("Model is infeasible.")
-                elif model.status == gp.GRB.INF_OR_UNBD:
-                    # Handle infeasible or unbounded model
-                    print("Model is infeasible or unbounded.")
-
-                if model.status == gp.GRB.OPTIMAL or model.status == gp.GRB.SUBOPTIMAL:
-                    # Extract the solution
-                    solution = []
-                    for i in range(n):
-                        var = model.getVarByName(f"w[{i}]")
-                        # print(f"w {i} = {var.X}")
-                        solution.append(var.X)
-
-        return solution
+                # 返回優化結果
+                if model.status == gp.GRB.OPTIMAL:
+                    return model.x
+                else:
+                    return np.zeros(n)
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
